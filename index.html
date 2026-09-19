@@ -338,7 +338,12 @@ html[lang="zh-Hant"] .principles-title span[data-principle-word].active { transf
 .robot-photo figcaption { position: absolute; left: 24px; bottom: 22px; padding: 10px 14px; border-radius: 999px; background: rgba(255,255,255,.68); color: rgba(0,0,0,.62); backdrop-filter: blur(18px); font-size: 11px; font-weight: 700; letter-spacing: .03em; }
 .robot-film { display: block; color: #fff; background: #070708; isolation: isolate; }
 .film-backdrop { position: absolute; inset: -10%; z-index: 0; background-size: cover; background-position: center; filter: blur(44px) brightness(.42) saturate(.82); transform: scale(1.12); opacity: .72; }
-.robot-film video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; object-position: center; transform: none; transition: filter .4s ease; }
+.film-poster,
+.robot-film video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; object-position: center; transform: none; }
+.film-poster { opacity: 1; transition: opacity .45s var(--ease); pointer-events: none; }
+.robot-film video { opacity: 0; transition: opacity .45s var(--ease), filter .4s ease; }
+.robot-film.is-video-ready .film-poster { opacity: 0; }
+.robot-film.is-video-ready video { opacity: 1; }
 .robot-film:hover video { transform: none; filter: brightness(1.04); }
 .film-shade { position: absolute; inset: 0; z-index: 2; background: linear-gradient(to bottom,rgba(0,0,0,.02),rgba(0,0,0,.03) 50%,rgba(0,0,0,.62)); pointer-events: none; }
 .film-ui { z-index: 3; position: absolute; left: 28px; right: 28px; bottom: 64px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
@@ -837,6 +842,7 @@ window.SITE_DATA = {
     portrait: 'assets/portrait.jpg',
     robotImage: 'assets/robot-image.jpg',
     robotVideo: 'assets/robot-video.mp4',
+    robotVideoMobile: 'assets/robot-video-mobile.mp4',
     robotPoster: 'assets/robot-poster.jpg'
   },
 
@@ -1332,7 +1338,9 @@ window.PortfolioRender = (() => {
 
         <a class="robot-film reveal media-card" ${delay(90)} href="${cfg().projectLinks.filmUrl}" target="_blank" rel="noopener noreferrer" aria-label="${p.videoAria}">
           <div class="film-backdrop" style="background-image:url('${assets.robotPoster}')" aria-hidden="true"></div>
+          <img class="film-poster" src="${assets.robotPoster}" alt="" width="720" height="1560" loading="eager" fetchpriority="low" decoding="async" aria-hidden="true" />
           <video muted loop playsinline preload="none" poster="${assets.robotPoster}" data-autoplay-video aria-hidden="true">
+            <source media="(max-width: 760px)" data-src="${assets.robotVideoMobile}" type="video/mp4" />
             <source data-src="${assets.robotVideo}" type="video/mp4" />
           </video>
           <div class="film-shade" aria-hidden="true"></div>
@@ -1512,17 +1520,26 @@ window.PortfolioAnimations = (() => {
     const video = document.querySelector('[data-autoplay-video]');
     if (!video) return;
 
-    const source = video.querySelector('source[data-src]');
+    const card = video.closest('.robot-film');
+    const sources = [...video.querySelectorAll('source[data-src]')];
     let loaded = false;
     let visible = false;
 
     const ensureLoaded = () => {
-      if (loaded || !source?.dataset.src) return;
-      source.src = source.dataset.src;
-      source.removeAttribute('data-src');
+      if (loaded || !sources.length) return;
+      sources.forEach(source => {
+        if (!source.dataset.src) return;
+        source.src = source.dataset.src;
+        source.removeAttribute('data-src');
+      });
       video.load();
       loaded = true;
     };
+
+    const markReady = () => card?.classList.add('is-video-ready');
+    video.addEventListener('loadeddata', markReady, { once: true });
+    video.addEventListener('canplay', markReady, { once: true });
+    video.addEventListener('error', () => card?.classList.remove('is-video-ready'));
 
     const syncPlayback = () => {
       if (!loaded || reduced() || document.hidden || !visible) {
@@ -1546,8 +1563,18 @@ window.PortfolioAnimations = (() => {
         ensureLoaded();
         loader.disconnect();
       });
-    }, { rootMargin: '500px 0px' });
+    }, { rootMargin: '1200px 0px' });
     loader.observe(video);
+
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const canPrefetch = !connection?.saveData && !/2g/i.test(connection?.effectiveType || '');
+    if (canPrefetch) {
+      const schedulePrefetch = () => {
+        if ('requestIdleCallback' in window) requestIdleCallback(ensureLoaded, { timeout: 2500 });
+        else setTimeout(ensureLoaded, 1200);
+      };
+      schedulePrefetch();
+    }
 
     const playback = new IntersectionObserver(entries => {
       entries.forEach(entry => {
